@@ -1,22 +1,45 @@
-# build artifacts
+# ========= Build output / generated =========
 **/build/
-**/cmake-build-*/
+**/cmake-build*/
 **/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/*.ninja
+**/*.ninja_deps
+**/*.ninja_log
+
+# Visual Studio / MSBuild
+**/.vs/
+**/ipch/
+**/Debug/
+**/Release/
+**/x64/
+**/Win32/
+**/obj/
+**/bin/
+**/*.suo
+**/*.VC.db*
+**/*.opendb
+**/*.tlog
+**/*.log
+**/*.ilk
+**/*.pdb
+**/*.idb
+**/*.iobj
+**/*.ipdb
+**/*.recipe
 **/*.obj
-**/*.o
-**/*.a
+**/*.exp
 **/*.lib
 **/*.dll
 **/*.exe
 **/*.pyd
 **/*.so
 
-# Visual Studio
-.vs/
-**/*.tlog
-**/*.log
-**/ipch/
-
 # Python caches
-__pycache__/
-*.pyc
+**/__pycache__/
+**/*.pyc
+
+# OS junk
+.DS_Store
+Thumbs.db
