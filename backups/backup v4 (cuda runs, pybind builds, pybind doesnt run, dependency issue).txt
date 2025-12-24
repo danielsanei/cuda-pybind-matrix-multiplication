@@ -1,0 +1,313 @@
+cuda_bind.cu
+
+#include <stdio.h>
+#include <chrono>
+
+#define N 1024
+#define BLOCK_SIZE 16
+#define THREADS_PER_BLOCK 256
+
+__global__ void matrix_multiplication_global_memory(int* input1, int* input2, int* output) {
+    int row = threadIdx.y + blockIdx.y * blockDim.y;
+    int col = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (row < N && col < N) {
+        int sum = 0;
+        for (int k = 0; k < N; k++) {
+            sum += input1[row * N + k] * input2[k * N + col];
+        }
+        output[row * N + col] = sum;
+    }
+}
+
+__global__ void matrix_multiplication_shared_memory(int* input1, int* input2, int* output) {
+    __shared__ int tile1[BLOCK_SIZE][BLOCK_SIZE];
+    __shared__ int tile2[BLOCK_SIZE][BLOCK_SIZE];
+
+    int row = threadIdx.y + blockIdx.y * blockDim.y;
+    int col = threadIdx.x + blockIdx.x * blockDim.x;
+
+    int sum = 0;
+    int tile_size = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    for (int s = 0; s < tile_size; s++) {
+        if (row < N && (s * BLOCK_SIZE + threadIdx.x) < N &&
+            col < N && (s * BLOCK_SIZE + threadIdx.y) < N) {
+            tile1[threadIdx.y][threadIdx.x] = input1[row * N + (s * BLOCK_SIZE + threadIdx.x)];
+            tile2[threadIdx.y][threadIdx.x] = input2[(s * BLOCK_SIZE + threadIdx.y) * N + col];
+        }
+        __syncthreads();
+
+        for (int k = 0; k < BLOCK_SIZE; k++) {
+            sum += tile1[threadIdx.y][k] * tile2[k][threadIdx.x];
+        }
+        __syncthreads();
+    }
+
+    if (row < N && col < N) {
+        output[row * N + col] = sum;
+    }
+}
+
+int main() {
+    int *input1, *input2, *output, *reference;
+    int *gpu_input1, *gpu_input2, *gpu_output;
+
+    int size = (N * N) * sizeof(int);
+
+    input1 = (int*)malloc(size);
+    input2 = (int*)malloc(size);
+    output = (int*)malloc(size);
+    reference = (int*)malloc(size);
+
+    for (int i = 0; i < (N * N); i++) {
+        input1[i] = rand() % 10;
+        input2[i] = rand() % 10;
+        output[i] = 0;
+        reference[i] = 0;
+    }
+
+    auto cpuStartTime = std::chrono::high_resolution_clock::now();
+    for (int row = 0; row < N; row++) {
+        for (int col = 0; col < N; col++) {
+            int sum = 0;
+            for (int k = 0; k < N; k++) {
+                sum += input1[row * N + k] * input2[k * N + col];
+            }
+            reference[row * N + col] = sum;
+        }
+    }
+    auto cpuEndTime = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<float, std::milli> cpuExecutionTime = cpuEndTime - cpuStartTime;
+    printf("CPU Execution Time = %f ms\n", cpuExecutionTime.count());
+
+    cudaMalloc((void**)&gpu_input1, size);
+    cudaMalloc((void**)&gpu_input2, size);
+    cudaMalloc((void**)&gpu_output, size);
+
+    cudaMemcpy(gpu_input1, input1, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_input2, input2, size, cudaMemcpyHostToDevice);
+
+    dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 numBlocks((N + BLOCK_SIZE - 1) / BLOCK_SIZE, (N + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    cudaEvent_t gpuStartTime;
+    cudaEventCreate(&gpuStartTime);
+    cudaEvent_t gpuEndTime;
+    cudaEventCreate(&gpuEndTime);
+
+    cudaEventRecord(gpuStartTime);
+    matrix_multiplication_shared_memory<<<numBlocks, threadsPerBlock>>>(gpu_input1, gpu_input2, gpu_output);
+    cudaDeviceSynchronize();
+    cudaEventRecord(gpuEndTime);
+
+    cudaMemcpy(output, gpu_output, size, cudaMemcpyDeviceToHost);
+    cudaEventSynchronize(gpuEndTime);
+
+    float ms = 0;
+    cudaEventElapsedTime(&ms, gpuStartTime, gpuEndTime);
+    printf("GPU Execution Time: %.6f ms\n", ms);
+
+    cudaEventDestroy(gpuStartTime);
+    cudaEventDestroy(gpuEndTime);
+
+    bool pass = true;
+    int correct_count = 0;
+    for (int i = 0; i < (N*N); i++) {
+        if (reference[i] != output[i]) {
+            pass = false;
+        }
+        else if (reference[i] == output[i]) {
+            correct_count++;
+        }
+    }
+
+    if (pass)
+        printf("PASS\n");
+    else
+        printf("FAIL\n");
+    printf("count = %d", correct_count);
+
+    free(input1);
+    free(input2);
+    free(output);
+    free(reference);
+    cudaFree(gpu_input1);
+    cudaFree(gpu_input2);
+    cudaFree(gpu_output);
+
+    return 0;
+}
+
+extern "C" void launch_matrix_multiplication_shared_memory(int* input1, int* input2, int* output) {
+    dim3 threadsPerBlock(16, 16);
+    dim3 numBlocks((1024 + 16 - 1) / 16, (1024 + 16 - 1) / 16);
+    matrix_multiplication_shared_memory<<<numBlocks, threadsPerBlock>>>(input1, input2, output);
+    cudaDeviceSynchronize();
+}
+
+
+
+------------------------------------------------------------------------------------------------------------
+
+
+
+#include <stdio.h>
+#include <chrono>
+
+#define N 1024
+#define BLOCK_SIZE 16
+#define THREADS_PER_BLOCK 256
+
+__global__ void matrix_multiplication_global_memory(int* input1, int* input2, int* output) {
+    int row = threadIdx.y + blockIdx.y * blockDim.y;
+    int col = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (row < N && col < N) {
+        int sum = 0;
+        for (int k = 0; k < N; k++) {
+            sum += input1[row * N + k] * input2[k * N + col];
+        }
+        output[row * N + col] = sum;
+    }
+}
+
+__global__ void matrix_multiplication_shared_memory(int* input1, int* input2, int* output) {
+    __shared__ int tile1[BLOCK_SIZE][BLOCK_SIZE];
+    __shared__ int tile2[BLOCK_SIZE][BLOCK_SIZE];
+
+    int row = threadIdx.y + blockIdx.y * blockDim.y;
+    int col = threadIdx.x + blockIdx.x * blockDim.x;
+
+    int sum = 0;
+    int tile_size = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    for (int s = 0; s < tile_size; s++) {
+        if (row < N && (s * BLOCK_SIZE + threadIdx.x) < N &&
+            col < N && (s * BLOCK_SIZE + threadIdx.y) < N) {
+            tile1[threadIdx.y][threadIdx.x] = input1[row * N + (s * BLOCK_SIZE + threadIdx.x)];
+            tile2[threadIdx.y][threadIdx.x] = input2[(s * BLOCK_SIZE + threadIdx.y) * N + col];
+        }
+        __syncthreads();
+
+        for (int k = 0; k < BLOCK_SIZE; k++) {
+            sum += tile1[threadIdx.y][k] * tile2[k][threadIdx.x];
+        }
+        __syncthreads();
+    }
+
+    if (row < N && col < N) {
+        output[row * N + col] = sum;
+    }
+}
+
+int main() {
+    int *input1, *input2, *output, *reference;
+    int *gpu_input1, *gpu_input2, *gpu_output;
+
+    int size = (N * N) * sizeof(int);
+
+    input1 = (int*)malloc(size);
+    input2 = (int*)malloc(size);
+    output = (int*)malloc(size);
+    reference = (int*)malloc(size);
+
+    for (int i = 0; i < (N * N); i++) {
+        input1[i] = rand() % 10;
+        input2[i] = rand() % 10;
+        output[i] = 0;
+        reference[i] = 0;
+    }
+
+    auto cpuStartTime = std::chrono::high_resolution_clock::now();
+    for (int row = 0; row < N; row++) {
+        for (int col = 0; col < N; col++) {
+            int sum = 0;
+            for (int k = 0; k < N; k++) {
+                sum += input1[row * N + k] * input2[k * N + col];
+            }
+            reference[row * N + col] = sum;
+        }
+    }
+    auto cpuEndTime = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<float, std::milli> cpuExecutionTime = cpuEndTime - cpuStartTime;
+    printf("CPU Execution Time = %f ms\n", cpuExecutionTime.count());
+
+    cudaMalloc((void**)&gpu_input1, size);
+    cudaMalloc((void**)&gpu_input2, size);
+    cudaMalloc((void**)&gpu_output, size);
+
+    cudaMemcpy(gpu_input1, input1, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_input2, input2, size, cudaMemcpyHostToDevice);
+
+    dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 numBlocks((N + BLOCK_SIZE - 1) / BLOCK_SIZE, (N + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    cudaEvent_t gpuStartTime;
+    cudaEventCreate(&gpuStartTime);
+    cudaEvent_t gpuEndTime;
+    cudaEventCreate(&gpuEndTime);
+
+    cudaEventRecord(gpuStartTime);
+    matrix_multiplication_shared_memory<<<numBlocks, threadsPerBlock>>>(gpu_input1, gpu_input2, gpu_output);
+    cudaDeviceSynchronize();
+    cudaEventRecord(gpuEndTime);
+
+    cudaMemcpy(output, gpu_output, size, cudaMemcpyDeviceToHost);
+    cudaEventSynchronize(gpuEndTime);
+
+    float ms = 0;
+    cudaEventElapsedTime(&ms, gpuStartTime, gpuEndTime);
+    printf("GPU Execution Time: %.6f ms\n", ms);
+
+    cudaEventDestroy(gpuStartTime);
+    cudaEventDestroy(gpuEndTime);
+
+    bool pass = true;
+    int correct_count = 0;
+    for (int i = 0; i < (N*N); i++) {
+        if (reference[i] != output[i]) {
+            pass = false;
+        }
+        else if (reference[i] == output[i]) {
+            correct_count++;
+        }
+    }
+
+    if (pass)
+        printf("PASS\n");
+    else
+        printf("FAIL\n");
+    printf("count = %d", correct_count);
+
+    free(input1);
+    free(input2);
+    free(output);
+    free(reference);
+    cudaFree(gpu_input1);
+    cudaFree(gpu_input2);
+    cudaFree(gpu_output);
+
+    return 0;
+}
+
+extern "C" void launch_matrix_multiplication_shared_memory(int* input1, int* input2, int* output) {
+    dim3 threadsPerBlock(16, 16);
+    dim3 numBlocks((1024 + 16 - 1) / 16, (1024 + 16 - 1) / 16);
+    matrix_multiplication_shared_memory<<<numBlocks, threadsPerBlock>>>(input1, input2, output);
+    cudaDeviceSynchronize();
+}
+
+
+
+------------------------------------------------------------------------------------------------------------
+
+
+
+OUTPUT
+
+
+CPU Execution Time = 2240.842041 ms
+GPU Execution Time: 50.774017 ms
+PASS
+count = 1048576

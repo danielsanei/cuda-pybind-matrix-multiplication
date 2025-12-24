@@ -1,0 +1,112 @@
+// Imports
+#include <stdio.h>
+
+// GPU initializations
+#define N 1024                      // 1024 x 1024 matrix
+#define BLOCK_SIZE 16               // where 1024 / 16 = 64 blocks => 64 x 64 blocks
+#define THREADS_PER_BLOCK 256       // 16 x 16 = 256 threads, 32 threads per warp => 8 warps
+
+// Perform matrix multiplication on GPU
+__global__ void matrix_multiplication(int* input1, int* input2, int* output)
+{
+    // get rows, columns
+    int row = threadIdx.y + blockIdx.y * blockDim.y;
+    int col = threadIdx.x + blockIdx.x * blockDim.x;
+
+    // GPU matrix multiplication
+    if (row < N && col < N) {
+        int sum = 0;
+        for (int k = 0; k < N; k++) {
+            sum += input1[row * N + k] * input2[k * N + col];
+        }
+        output[row * N + col] = sum;
+    }
+}
+
+// Driver code
+int main()
+{
+    // variables for matrices
+    int *input1, *input2, *output, *reference;      // CPU (host)
+    int *gpu_input1, *gpu_input2, *gpu_output;      // GPU (device)
+
+    // initialize block size
+    int size = (N * N) * sizeof(int);
+
+    // allocate memory for host matrices
+    input1 = (int*)malloc(size);
+    input2 = (int*)malloc(size);
+    output = (int*)malloc(size);
+    reference = (int*)malloc(size);
+
+    // initialize input matrices with randomly generated values
+    for (int i = 0; i < (N * N); i++) {
+        input1[i] = rand() % 10;
+        input2[i] = rand() % 10;
+        output[i] = 0;
+        reference[i] = 0;
+    }
+
+    // perform CPU matrix multiplication
+    for (int row = 0; row < N; row++) {
+        for (int col = 0; col < N; col++) {
+            int sum = 0;
+            for (int k = 0; k < N; k++) {
+                sum += input1[row * N + k] * input2[k * N + col];
+            }
+            reference[row * N + col] = sum;
+        }
+    }
+
+    // allocate memory for device matrices
+    cudaMalloc( (void**)&gpu_input1, size);
+    cudaMalloc( (void**)&gpu_input2, size);
+    cudaMalloc( (void**)&gpu_output, size);
+
+    // copy input matrices to device
+    cudaMemcpy(gpu_input1, input1, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_input2, input2, size, cudaMemcpyHostToDevice);
+
+    // launch kernel function on GPU (define blocks, threads)
+        // 2D block size, 16 x 16 = 256 threads
+        // total blocks, each is 16 x 16
+    dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 numBlocks((N + BLOCK_SIZE - 1) / BLOCK_SIZE, (N + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    matrix_multiplication <<< numBlocks, threadsPerBlock >>> (gpu_input1, gpu_input2, gpu_output);
+
+    // copy resulting matrix back to host
+    cudaMemcpy(output, gpu_output, size, cudaMemcpyDeviceToHost);
+
+    // compare device results with host reference
+    bool pass = true;
+    int count = 0;
+    for (int i = 0; i < (N*N); i++) {       // check all N*N elements in array (as 1D matrix)
+        if (reference[i] != output[i]) {
+            pass = false;
+        }
+        else if (reference[i] == output[i]) {
+            count++;
+        }
+            
+    }
+
+    // display comparison results
+    if (pass)
+        printf("PASS\n");
+    else
+        printf("FAIL\n");
+    printf("testing rn lol\n");
+    printf("count = %d", count);
+
+    // memory deallocation
+    free(input1);
+    free(input2);
+    free(output);
+    free(reference);
+    cudaFree(gpu_input1);
+    cudaFree(gpu_input2);
+    cudaFree(gpu_output);
+
+    // Return
+    return 0;
+}

@@ -1,0 +1,19 @@
+
+include_directories(
+    ${PYTHON_INCLUDE_DIRS}
+    ${PYBIND11_INCLUDE_DIRS}
+)
+
+pybind11_add_module(cpp_add MODULE pybind11_add.cpp)
+target_link_libraries(cpp_add ${PYTHON_LIBRARIES})
+
+pybind11_add_module(cpp_export MODULE pybind11_add.cpp)
+target_link_libraries(cpp_export ${PYTHON_LIBRARIES})
+
+pybind11_add_module(cpp_class MODULE pybind11_class.cpp)
+target_link_libraries(cpp_class ${PYTHON_LIBRARIES})
+
+##################### Matrix Add ##################### 
+pybind11_add_module(cpp_matrix_add MODULE pybind11_madd.cpp)
+target_link_libraries(cpp_matrix_add ${PYTHON_LIBRARIES})
+####################################################### 

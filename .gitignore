@@ -1,0 +1,22 @@
+# build artifacts
+**/build/
+**/cmake-build-*/
+**/CMakeFiles/
+**/*.obj
+**/*.o
+**/*.a
+**/*.lib
+**/*.dll
+**/*.exe
+**/*.pyd
+**/*.so
+
+# Visual Studio
+.vs/
+**/*.tlog
+**/*.log
+**/ipch/
+
+# Python caches
+__pycache__/
+*.pyc
